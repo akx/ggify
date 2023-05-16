@@ -1,0 +1,2 @@
+huggingface-hub~=0.14.1
+tqdm
