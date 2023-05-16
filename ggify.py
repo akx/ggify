@@ -8,9 +8,14 @@ import huggingface_hub
 import argparse
 import subprocess
 
-LLAMA_CPP_DIR = os.environ.get("LLAMA_CPP_DIR", "./")
-QUANTIZE = os.path.join(LLAMA_CPP_DIR, "quantize")
-CONVERT_PTH = os.path.join(LLAMA_CPP_DIR, "convert-pth-to-ggml.py")
+
+def get_llama_cpp_dir():
+    dir = os.environ.get("LLAMA_CPP_DIR", "./")
+    if not os.path.isdir(dir):
+        raise ValueError(f"Could not find llama.cpp directory at {dir}")
+    return dir
+
+
 PYTHON_EXE = os.environ.get("PYTHON_EXE", sys.executable)
 
 
@@ -20,7 +25,15 @@ def quantize_f32(dirname, type):
     if not os.path.isfile(q_model_path):
         if not f32_model_path:
             raise ValueError(f"Could not find fp32 model at {f32_model_path}")
-        subprocess.check_call([QUANTIZE, f32_model_path, type])
+        quantize_cmd = os.path.join(get_llama_cpp_dir(), "quantize")
+
+        if not os.path.isfile(quantize_cmd):
+            raise RuntimeError(
+                f"Could not find quantize executable at {quantize_cmd} "
+                f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
+            )
+
+        subprocess.check_call([quantize_cmd, f32_model_path, type])
     return q_model_path
 
 
@@ -33,7 +46,13 @@ def convert_pth(dirname, *, type: str):
         raise ValueError(f"Unknown type {type}")
     model_path = os.path.join(dirname, f"ggml-model-{type_moniker}.bin")
     if not os.path.isfile(model_path):
-        subprocess.check_call([PYTHON_EXE, CONVERT_PTH, dirname, type])
+        convert_pth_py = os.path.join(get_llama_cpp_dir(), "convert-pth-to-ggml.py")
+        if not os.path.isfile(convert_pth_py):
+            raise RuntimeError(
+                f"Could not find convert-pth-to-ggml.py at {convert_pth_py} "
+                f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
+            )
+        subprocess.check_call([PYTHON_EXE, convert_pth_py, dirname, type])
     return model_path
 
 
@@ -85,14 +104,15 @@ def main():
         help="Quantization types, comma-separated (default: %(DEFAULT)s; available: f16,f32,q4_0,q4_1,q5_0,q5_1,q8_0)",
         default="f32,q4_0,q4_1,q8_0",
     )
+    ap.add_argument(
+        "--llama-cpp-dir",
+        type=str,
+        help="Directory containing llama.cpp (default: %(DEFAULT)s)",
+        default=get_llama_cpp_dir(),
+    )
     args = ap.parse_args()
-
-    if not os.path.isdir(LLAMA_CPP_DIR):
-        ap.error(f"Could not find llama.cpp directory at {LLAMA_CPP_DIR}")
-
-    if not os.path.isfile(QUANTIZE):
-        ap.error(f"Could not find quantize executable at {QUANTIZE}")
-
+    if args.llama_cpp_dir:
+        os.environ["LLAMA_CPP_DIR"] = args.llama_cpp_dir
     repo = args.repo
     dirname = os.path.join(".", "models", repo.replace("/", "__"))
     download_repo(repo, dirname)
