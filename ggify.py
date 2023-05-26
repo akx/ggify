@@ -37,14 +37,19 @@ def quantize_f32(dirname, type):
     return q_model_path
 
 
-def convert_pth(dirname, *, type: str):
-    if type == "0":
+def get_ggml_model_path(dirname: str, convert_type: str):
+    if convert_type in ("0", "f32"):
         type_moniker = "f32"
-    elif type == "1":
+    elif convert_type == ("1", "f16"):
         type_moniker = "f16"
     else:
-        raise ValueError(f"Unknown type {type}")
+        raise ValueError(f"Unknown type {convert_type}")
     model_path = os.path.join(dirname, f"ggml-model-{type_moniker}.bin")
+    return model_path
+
+
+def convert_pth(dirname, *, convert_type: str):
+    model_path = get_ggml_model_path(dirname, convert_type)
     if not os.path.isfile(model_path):
         convert_pth_py = os.path.join(get_llama_cpp_dir(), "convert-pth-to-ggml.py")
         if not os.path.isfile(convert_pth_py):
@@ -52,31 +57,37 @@ def convert_pth(dirname, *, type: str):
                 f"Could not find convert-pth-to-ggml.py at {convert_pth_py} "
                 f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
             )
-        subprocess.check_call([PYTHON_EXE, convert_pth_py, dirname, type])
+        subprocess.check_call([PYTHON_EXE, convert_pth_py, dirname, convert_type])
     return model_path
 
 
-def convert_pth_to_types(dirname, types):
+def convert_pth_to_types(dirname, types, remove_f32_model=False):
     # If f32 is requested, or a quantized type is requested, convert to fp32 GGML
     if "f32" in types or any(t.startswith("q") for t in types):
-        yield convert_pth(dirname, type="0")
+        yield convert_pth(dirname, convert_type="0")
     # Other types
     for type in types:
         if type.startswith("q"):
             q_model_path = quantize_f32(dirname, type)
             yield q_model_path
         elif type == "f16":
-            yield convert_pth(dirname, type="1")
+            yield convert_pth(dirname, convert_type="1")
         elif type == "f32":
             pass  # already dealt with
         else:
             raise ValueError(f"Unknown type {type}")
+    if "f32" not in types and remove_f32_model:
+        f32_model_path = get_ggml_model_path(dirname, "f32")
+        print(f"Removing fp32 model {f32_model_path}")
+        os.remove(f32_model_path)
 
 
 def download_repo(repo, dirname):
     files = list(huggingface_hub.list_files_info(repo))
     if not any(fi.rfilename.startswith("pytorch_model-") for fi in files):
-        raise ValueError(f"Repo {repo} does not contain a PyTorch model")
+        print(
+            f"Repo {repo} does not seem to contain a PyTorch model, but continuing anyway"
+        )
 
     with tqdm.tqdm(files, unit="file", desc="Downloading files...") as pbar:
         fileinfo: RepoFile
@@ -102,13 +113,18 @@ def main():
         "-t",
         type=str,
         help="Quantization types, comma-separated (default: %(DEFAULT)s; available: f16,f32,q4_0,q4_1,q5_0,q5_1,q8_0)",
-        default="f32,q4_0,q4_1,q8_0",
+        default="q4_0,q4_1,q8_0",
     )
     ap.add_argument(
         "--llama-cpp-dir",
         type=str,
         help="Directory containing llama.cpp (default: %(DEFAULT)s)",
         default=get_llama_cpp_dir(),
+    )
+    ap.add_argument(
+        "--remove-f32-model",
+        action="store_true",
+        help="Remove the fp32 model after quantization (unless it's requested)",
     )
     args = ap.parse_args()
     if args.llama_cpp_dir:
@@ -117,7 +133,11 @@ def main():
     dirname = os.path.join(".", "models", repo.replace("/", "__"))
     download_repo(repo, dirname)
     types = set(re.split(r",\s*", args.types))
-    output_paths = list(convert_pth_to_types(dirname, types=types))
+    output_paths = list(
+        convert_pth_to_types(
+            dirname, types=types, remove_f32_model=args.remove_f32_model
+        )
+    )
     for output_path in output_paths:
         print(output_path)
 
