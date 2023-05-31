@@ -63,8 +63,9 @@ def convert_pth(dirname, *, convert_type: str):
 
 def convert_pth_to_types(dirname, types, remove_f32_model=False):
     # If f32 is requested, or a quantized type is requested, convert to fp32 GGML
+    f32_path = None
     if "f32" in types or any(t.startswith("q") for t in types):
-        yield convert_pth(dirname, convert_type="0")
+        f32_path = convert_pth(dirname, convert_type="0")
     # Other types
     for type in types:
         if type.startswith("q"):
@@ -80,11 +81,13 @@ def convert_pth_to_types(dirname, types, remove_f32_model=False):
         f32_model_path = get_ggml_model_path(dirname, "f32")
         print(f"Removing fp32 model {f32_model_path}")
         os.remove(f32_model_path)
+    elif f32_path:
+        yield f32_path
 
 
 def download_repo(repo, dirname):
     files = list(huggingface_hub.list_files_info(repo))
-    if not any(fi.rfilename.startswith("pytorch_model-") for fi in files):
+    if not any(fi.rfilename.startswith("pytorch_model") for fi in files):
         print(
             f"Repo {repo} does not seem to contain a PyTorch model, but continuing anyway"
         )
@@ -112,19 +115,19 @@ def main():
         "--types",
         "-t",
         type=str,
-        help="Quantization types, comma-separated (default: %(DEFAULT)s; available: f16,f32,q4_0,q4_1,q5_0,q5_1,q8_0)",
+        help="Quantization types, comma-separated (default: %(default)s; available: f16,f32,q4_0,q4_1,q5_0,q5_1,q8_0)",
         default="q4_0,q4_1,q8_0",
     )
     ap.add_argument(
         "--llama-cpp-dir",
         type=str,
-        help="Directory containing llama.cpp (default: %(DEFAULT)s)",
+        help="Directory containing llama.cpp (default: %(default)s)",
         default=get_llama_cpp_dir(),
     )
     ap.add_argument(
-        "--remove-f32-model",
+        "--keep-f32-model",
         action="store_true",
-        help="Remove the fp32 model after quantization (unless it's requested)",
+        help="Don't remove the fp32 model after quantization (unless it's explicitly requested)",
     )
     args = ap.parse_args()
     if args.llama_cpp_dir:
@@ -135,7 +138,9 @@ def main():
     types = set(re.split(r",\s*", args.types))
     output_paths = list(
         convert_pth_to_types(
-            dirname, types=types, remove_f32_model=args.remove_f32_model
+            dirname,
+            types=types,
+            remove_f32_model=not args.keep_f32_model,
         )
     )
     for output_path in output_paths:
