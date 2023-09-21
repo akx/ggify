@@ -50,8 +50,8 @@ def quantize_f32(dirname, type):
                 f"Could not find quantize executable at {quantize_cmd} "
                 f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
             )
-
-        subprocess.check_call([quantize_cmd, f32_model_path, type])
+        concurrency = str(os.cpu_count() + 2)
+        subprocess.check_call([quantize_cmd, f32_model_path, type, concurrency])
     return q_model_path
 
 
