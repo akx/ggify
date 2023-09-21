@@ -17,11 +17,12 @@ def get_llama_cpp_dir():
 
 
 PYTHON_EXE = os.environ.get("PYTHON_EXE", sys.executable)
+GG_MODEL_EXTENSION = ".gguf"
 
 
 def quantize_f32(dirname, type):
-    q_model_path = os.path.join(dirname, f"ggml-model-{type}.bin")
-    f32_model_path = os.path.join(dirname, "ggml-model-f32.bin")
+    q_model_path = os.path.join(dirname, f"ggml-model-{type}{GG_MODEL_EXTENSION}")
+    f32_model_path = os.path.join(dirname, f"ggml-model-f32{GG_MODEL_EXTENSION}")
     if not os.path.isfile(q_model_path):
         if not f32_model_path:
             raise ValueError(f"Could not find fp32 model at {f32_model_path}")
@@ -44,20 +45,20 @@ def get_ggml_model_path(dirname: str, convert_type: str):
         type_moniker = "f16"
     else:
         raise ValueError(f"Unknown type {convert_type}")
-    model_path = os.path.join(dirname, f"ggml-model-{type_moniker}.bin")
+    model_path = os.path.join(dirname, f"ggml-model-{type_moniker}{GG_MODEL_EXTENSION}")
     return model_path
 
 
 def convert_pth(dirname, *, convert_type: str):
     model_path = get_ggml_model_path(dirname, convert_type)
     if not os.path.isfile(model_path):
-        convert_pth_py = os.path.join(get_llama_cpp_dir(), "convert-pth-to-ggml.py")
-        if not os.path.isfile(convert_pth_py):
+        convert_py = os.path.join(get_llama_cpp_dir(), "convert.py")
+        if not os.path.isfile(convert_py):
             raise RuntimeError(
-                f"Could not find convert-pth-to-ggml.py at {convert_pth_py} "
+                f"Could not find convert.py at {convert_py} "
                 f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
             )
-        subprocess.check_call([PYTHON_EXE, convert_pth_py, dirname, convert_type])
+        subprocess.check_call([PYTHON_EXE, convert_py, dirname, "--outtype", convert_type])
     return model_path
 
 
@@ -65,14 +66,14 @@ def convert_pth_to_types(dirname, types, remove_f32_model=False):
     # If f32 is requested, or a quantized type is requested, convert to fp32 GGML
     f32_path = None
     if "f32" in types or any(t.startswith("q") for t in types):
-        f32_path = convert_pth(dirname, convert_type="0")
+        f32_path = convert_pth(dirname, convert_type="f32")
     # Other types
     for type in types:
         if type.startswith("q"):
             q_model_path = quantize_f32(dirname, type)
             yield q_model_path
         elif type == "f16":
-            yield convert_pth(dirname, convert_type="1")
+            yield convert_pth(dirname, convert_type="f16")
         elif type == "f32":
             pass  # already dealt with
         else:
