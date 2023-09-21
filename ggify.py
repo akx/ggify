@@ -37,7 +37,7 @@ PYTHON_EXE = os.environ.get("PYTHON_EXE", sys.executable)
 GG_MODEL_EXTENSION = ".gguf"
 
 
-def quantize_f32(dirname, type):
+def quantize_f32(dirname, type: str) -> str:
     q_model_path = os.path.join(dirname, f"ggml-model-{type}{GG_MODEL_EXTENSION}")
     f32_model_path = os.path.join(dirname, f"ggml-model-f32{GG_MODEL_EXTENSION}")
     if not os.path.isfile(q_model_path):
@@ -87,7 +87,7 @@ def convert_pth_to_types(dirname, types, remove_f32_model=False):
     # Other types
     for type in types:
         if type.startswith("q"):
-            q_model_path = quantize_f32(dirname, type)
+            q_model_path = quantize_f32(dirname, type=type.upper())
             yield q_model_path
         elif type == "f16":
             yield convert_pth(dirname, convert_type="f16")
