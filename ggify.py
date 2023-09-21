@@ -8,6 +8,23 @@ import huggingface_hub
 import argparse
 import subprocess
 
+KNOWN_QUANTIZATION_TYPES = {
+    "q4_0",
+    "q4_1",
+    "q5_0",
+    "q5_1",
+    "q2_k",
+    "q3_k_s",
+    "q3_k_m",
+    "q3_k_l",
+    "q4_k_s",
+    "q4_k_m",
+    "q5_k_s",
+    "q5_k_m",
+    "q6_k",
+    "q8_0",
+}
+
 
 def get_llama_cpp_dir():
     dir = os.environ.get("LLAMA_CPP_DIR", "./")
@@ -110,13 +127,14 @@ def download_repo(repo, dirname):
 
 
 def main():
+    quants = ",".join(KNOWN_QUANTIZATION_TYPES)
     ap = argparse.ArgumentParser()
     ap.add_argument("repo", type=str, help="Huggingface repository to convert")
     ap.add_argument(
         "--types",
         "-t",
         type=str,
-        help="Quantization types, comma-separated (default: %(default)s; available: f16,f32,q4_0,q4_1,q5_0,q5_1,q8_0)",
+        help=f"Quantization types, comma-separated (default: %(default)s; available: f16,f32,{quants})",
         default="q4_0,q4_1,q8_0",
     )
     ap.add_argument(
