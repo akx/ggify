@@ -66,7 +66,7 @@ def get_ggml_model_path(dirname: str, convert_type: str):
     return model_path
 
 
-def convert_pth(dirname, *, convert_type: str):
+def convert_pth(dirname, *, convert_type: str, vocab_type: str):
     model_path = get_ggml_model_path(dirname, convert_type)
     if not os.path.isfile(model_path):
         convert_py = os.path.join(get_llama_cpp_dir(), "convert.py")
@@ -75,15 +75,22 @@ def convert_pth(dirname, *, convert_type: str):
                 f"Could not find convert.py at {convert_py} "
                 f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
             )
-        subprocess.check_call([PYTHON_EXE, convert_py, dirname, "--outtype", convert_type])
+        command = [
+            PYTHON_EXE,
+            convert_py,
+            dirname,
+            f"--outtype={convert_type}",
+            f"--vocab-type={vocab_type}",
+        ]
+        subprocess.check_call(command)
     return model_path
 
 
-def convert_pth_to_types(dirname, types, remove_f32_model=False):
+def convert_pth_to_types(dirname, *, types, remove_f32_model=False, vocab_type: str):
     # If f32 is requested, or a quantized type is requested, convert to fp32 GGML
     f32_path = None
     if "f32" in types or any(t.startswith("q") for t in types):
-        f32_path = convert_pth(dirname, convert_type="f32")
+        f32_path = convert_pth(dirname, convert_type="f32", vocab_type=vocab_type)
     # Other types
     for type in types:
         if type.startswith("q"):
@@ -148,6 +155,11 @@ def main():
         action="store_true",
         help="Don't remove the fp32 model after quantization (unless it's explicitly requested)",
     )
+    ap.add_argument(
+        "--vocab-type",
+        type=str,
+        default="spm",
+    )
     args = ap.parse_args()
     if args.llama_cpp_dir:
         os.environ["LLAMA_CPP_DIR"] = args.llama_cpp_dir
@@ -160,6 +172,7 @@ def main():
             dirname,
             types=types,
             remove_f32_model=not args.keep_f32_model,
+            vocab_type=args.vocab_type,
         )
     )
     for output_path in output_paths:
