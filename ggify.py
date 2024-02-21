@@ -1,12 +1,14 @@
+import argparse
 import os
 import re
+import subprocess
 import sys
 
+import huggingface_hub
 import tqdm
 from huggingface_hub.hf_api import RepoFile
-import huggingface_hub
-import argparse
-import subprocess
+
+hf_token = huggingface_hub.get_token()
 
 KNOWN_QUANTIZATION_TYPES = {
     "q4_0",
@@ -111,7 +113,7 @@ def convert_pth_to_types(dirname, *, types, remove_f32_model=False, vocab_type: 
 
 
 def download_repo(repo, dirname):
-    files = list(huggingface_hub.list_files_info(repo))
+    files = list(huggingface_hub.list_files_info(repo, token=hf_token))
     if not any(fi.rfilename.startswith("pytorch_model") for fi in files):
         print(
             f"Repo {repo} does not seem to contain a PyTorch model, but continuing anyway"
@@ -130,6 +132,7 @@ def download_repo(repo, dirname):
                 repo_id=repo,
                 filename=filename,
                 local_dir=dirname,
+                token=hf_token,
             )
 
 
