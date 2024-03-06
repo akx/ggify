@@ -123,7 +123,10 @@ def download_repo(repo, dirname):
         fileinfo: RepoFile
         for fileinfo in pbar:
             filename = fileinfo.rfilename
-            if os.path.basename(filename).startswith("."):
+            basename = os.path.basename(filename)
+            if basename.startswith("."):
+                continue
+            if basename.endswith(".gguf"):
                 continue
             if os.path.isfile(os.path.join(dirname, filename)):
                 continue
