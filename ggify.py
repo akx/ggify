@@ -113,7 +113,7 @@ def convert_pth_to_types(dirname, *, types, remove_f32_model=False, vocab_type: 
 
 
 def download_repo(repo, dirname):
-    files = list(huggingface_hub.list_files_info(repo, token=hf_token))
+    files = list(huggingface_hub.list_repo_tree(repo, token=hf_token))
     if not any(fi.rfilename.startswith("pytorch_model") for fi in files):
         print(
             f"Repo {repo} does not seem to contain a PyTorch model, but continuing anyway"
