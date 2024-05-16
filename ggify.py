@@ -45,12 +45,23 @@ def print_and_check_call(args: list):
     return subprocess.check_call(args)
 
 
-def quantize_f32(dirname, type: str) -> str:
-    q_model_path = os.path.join(dirname, f"ggml-model-{type}{GG_MODEL_EXTENSION}")
-    f32_model_path = os.path.join(dirname, f"ggml-model-f32{GG_MODEL_EXTENSION}")
+def quantize(
+    dirname,
+    *,
+    src_type: str,
+    dest_type: str,
+) -> str:
+    q_model_path = os.path.join(
+        dirname,
+        f"ggml-model-{dest_type}{GG_MODEL_EXTENSION}",
+    )
+    nonq_model_path = os.path.join(
+        dirname,
+        f"ggml-model-{src_type}{GG_MODEL_EXTENSION}",
+    )
     if not os.path.isfile(q_model_path):
-        if not f32_model_path:
-            raise ValueError(f"Could not find fp32 model at {f32_model_path}")
+        if not nonq_model_path:
+            raise ValueError(f"Could not find nonquantized model at {nonq_model_path}")
         quantize_cmd = os.path.join(get_llama_cpp_dir(), "quantize")
 
         if not os.path.isfile(quantize_cmd):
@@ -59,14 +70,14 @@ def quantize_f32(dirname, type: str) -> str:
                 f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
             )
         concurrency = str(os.cpu_count() + 2)
-        print_and_check_call([quantize_cmd, f32_model_path, type, concurrency])
+        print_and_check_call([quantize_cmd, nonq_model_path, dest_type, concurrency])
     return q_model_path
 
 
 def get_ggml_model_path(dirname: str, convert_type: str):
     if convert_type in ("0", "f32"):
         type_moniker = "f32"
-    elif convert_type == ("1", "f16"):
+    elif convert_type in ("1", "f16"):
         type_moniker = "f16"
     else:
         raise ValueError(f"Unknown type {convert_type}")
@@ -82,7 +93,12 @@ def convert_pth(
     use_convert_hf_to_gguf=False,
 ):
     model_path = get_ggml_model_path(dirname, convert_type)
-    if not os.path.isfile(model_path):
+    try:
+        stat = os.stat(model_path)
+        if stat.st_size < 65536:
+            print(f"Not believing a {stat.st_size:d}-byte model is valid, reconverting")
+            raise FileNotFoundError()
+    except FileNotFoundError:
         if use_convert_hf_to_gguf:
             convert_using_hf_to_gguf(dirname, convert_type=convert_type)
         else:
@@ -132,36 +148,41 @@ def convert_pth_to_types(
     dirname,
     *,
     types,
-    remove_f32_model=False,
+    remove_nonquantized_model=False,
+    nonquantized_type: str,
     vocab_type: str,
     use_convert_hf_to_gguf=False,
 ):
     # If f32 is requested, or a quantized type is requested, convert to fp32 GGML
-    f32_path = None
-    if "f32" in types or any(t.startswith("q") for t in types):
-        f32_path = convert_pth(
+    nonquantized_path = None
+    if nonquantized_type in types or any(t.startswith("q") for t in types):
+        nonquantized_path = convert_pth(
             dirname,
-            convert_type="f32",
+            convert_type=nonquantized_type,
             vocab_type=vocab_type,
             use_convert_hf_to_gguf=use_convert_hf_to_gguf,
         )
     # Other types
     for type in types:
         if type.startswith("q"):
-            q_model_path = quantize_f32(dirname, type=type.upper())
+            q_model_path = quantize(
+                dirname,
+                src_type=nonquantized_type,
+                dest_type=type.upper(),
+            )
             yield q_model_path
-        elif type == "f16":
-            yield convert_pth(dirname, convert_type="f16")
-        elif type == "f32":
+        elif type in ("f16", "f32") and type != nonquantized_type:
+            yield convert_pth(dirname, convert_type=type)
+        elif type == nonquantized_type:
             pass  # already dealt with
         else:
             raise ValueError(f"Unknown type {type}")
-    if "f32" not in types and remove_f32_model:
-        f32_model_path = get_ggml_model_path(dirname, "f32")
-        print(f"Removing fp32 model {f32_model_path}")
-        os.remove(f32_model_path)
-    elif f32_path:
-        yield f32_path
+    if nonquantized_type not in types and remove_nonquantized_model:
+        nonq_model_path = get_ggml_model_path(dirname, nonquantized_type)
+        print(f"Removing non-quantized model {nonq_model_path}")
+        os.remove(nonq_model_path)
+    elif nonquantized_path:
+        yield nonquantized_path
 
 
 def download_repo(repo, dirname):
@@ -209,9 +230,16 @@ def main():
         default=get_llama_cpp_dir(),
     )
     ap.add_argument(
-        "--keep-f32-model",
+        "--nonquantized-type",
+        type=str,
+        choices=("f16", "f32"),
+        default="f32",
+        help="Dtype of the non-quantized model (default: %(default)s)",
+    )
+    ap.add_argument(
+        "--keep-nonquantized",
         action="store_true",
-        help="Don't remove the fp32 model after quantization (unless it's explicitly requested)",
+        help="Don't remove the nonquantized model after quantization (unless it's explicitly requested)",
     )
     ap.add_argument(
         "--vocab-type",
@@ -234,7 +262,8 @@ def main():
         convert_pth_to_types(
             dirname,
             types=types,
-            remove_f32_model=not args.keep_f32_model,
+            remove_nonquantized_model=not args.keep_nonquantized,
+            nonquantized_type=args.nonquantized_type,
             vocab_type=args.vocab_type,
             use_convert_hf_to_gguf=args.use_convert_hf_to_gguf,
         )
