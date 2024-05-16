@@ -1,6 +1,7 @@
 import argparse
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -39,6 +40,11 @@ PYTHON_EXE = os.environ.get("PYTHON_EXE", sys.executable)
 GG_MODEL_EXTENSION = ".gguf"
 
 
+def print_and_check_call(args: list):
+    print("=> Running:", shlex.join(args))
+    return subprocess.check_call(args)
+
+
 def quantize_f32(dirname, type: str) -> str:
     q_model_path = os.path.join(dirname, f"ggml-model-{type}{GG_MODEL_EXTENSION}")
     f32_model_path = os.path.join(dirname, f"ggml-model-f32{GG_MODEL_EXTENSION}")
@@ -53,7 +59,7 @@ def quantize_f32(dirname, type: str) -> str:
                 f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
             )
         concurrency = str(os.cpu_count() + 2)
-        subprocess.check_call([quantize_cmd, f32_model_path, type, concurrency])
+        print_and_check_call([quantize_cmd, f32_model_path, type, concurrency])
     return q_model_path
 
 
@@ -68,31 +74,77 @@ def get_ggml_model_path(dirname: str, convert_type: str):
     return model_path
 
 
-def convert_pth(dirname, *, convert_type: str, vocab_type: str):
+def convert_pth(
+    dirname,
+    *,
+    convert_type: str,
+    vocab_type: str,
+    use_convert_hf_to_gguf=False,
+):
     model_path = get_ggml_model_path(dirname, convert_type)
     if not os.path.isfile(model_path):
-        convert_py = os.path.join(get_llama_cpp_dir(), "convert.py")
-        if not os.path.isfile(convert_py):
-            raise RuntimeError(
-                f"Could not find convert.py at {convert_py} "
-                f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
+        if use_convert_hf_to_gguf:
+            convert_using_hf_to_gguf(dirname, convert_type=convert_type)
+        else:
+            convert_using_convert(
+                dirname, convert_type=convert_type, vocab_type=vocab_type
             )
-        command = [
+    return model_path
+
+
+def convert_using_convert(dirname, *, convert_type, vocab_type):
+    convert_hf_to_gguf_py = os.path.join(get_llama_cpp_dir(), "convert.py")
+    if not os.path.isfile(convert_hf_to_gguf_py):
+        raise RuntimeError(
+            f"Could not find convert.py at {convert_hf_to_gguf_py} "
+            f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
+        )
+    print_and_check_call(
+        [
             PYTHON_EXE,
-            convert_py,
+            convert_hf_to_gguf_py,
             dirname,
             f"--outtype={convert_type}",
             f"--vocab-type={vocab_type}",
         ]
-        subprocess.check_call(command)
-    return model_path
+    )
 
 
-def convert_pth_to_types(dirname, *, types, remove_f32_model=False, vocab_type: str):
+def convert_using_hf_to_gguf(dirname, *, convert_type):
+    convert_hf_to_gguf_py = os.path.join(get_llama_cpp_dir(), "convert-hf-to-gguf.py")
+    if not os.path.isfile(convert_hf_to_gguf_py):
+        raise RuntimeError(
+            f"Could not find convert.py at {convert_hf_to_gguf_py} "
+            f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
+        )
+    print_and_check_call(
+        [
+            PYTHON_EXE,
+            convert_hf_to_gguf_py,
+            dirname,
+            f"--outtype={convert_type}",
+            "--verbose",
+        ]
+    )
+
+
+def convert_pth_to_types(
+    dirname,
+    *,
+    types,
+    remove_f32_model=False,
+    vocab_type: str,
+    use_convert_hf_to_gguf=False,
+):
     # If f32 is requested, or a quantized type is requested, convert to fp32 GGML
     f32_path = None
     if "f32" in types or any(t.startswith("q") for t in types):
-        f32_path = convert_pth(dirname, convert_type="f32", vocab_type=vocab_type)
+        f32_path = convert_pth(
+            dirname,
+            convert_type="f32",
+            vocab_type=vocab_type,
+            use_convert_hf_to_gguf=use_convert_hf_to_gguf,
+        )
     # Other types
     for type in types:
         if type.startswith("q"):
@@ -166,6 +218,11 @@ def main():
         type=str,
         default="spm",
     )
+    ap.add_argument(
+        "--use-convert-hf-to-gguf",
+        action="store_true",
+        help="Use convert_hf_to_gguf.py instead of convert.py",
+    )
     args = ap.parse_args()
     if args.llama_cpp_dir:
         os.environ["LLAMA_CPP_DIR"] = args.llama_cpp_dir
@@ -179,6 +236,7 @@ def main():
             types=types,
             remove_f32_model=not args.keep_f32_model,
             vocab_type=args.vocab_type,
+            use_convert_hf_to_gguf=args.use_convert_hf_to_gguf,
         )
     )
     for output_path in output_paths:
