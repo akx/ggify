@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import os
 import re
@@ -36,6 +38,27 @@ def get_llama_cpp_dir():
     return dir
 
 
+class ToolNotFoundError(RuntimeError):
+    pass
+
+
+def find_tool(
+    dir: str,
+    tool_name: str,
+    candidate_names: list[str] | None = None,
+    raise_on_missing=True,
+) -> str | None:
+    for candidate_name in candidate_names or [tool_name]:
+        candidate_path = os.path.join(dir, candidate_name)
+        if os.path.isfile(candidate_path):
+            return candidate_path
+    if raise_on_missing:
+        raise ToolNotFoundError(
+            f"Could not find {tool_name} in {dir} (set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))",
+        )
+    return None
+
+
 PYTHON_EXE = os.environ.get("PYTHON_EXE", sys.executable)
 GG_MODEL_EXTENSION = ".gguf"
 
@@ -62,13 +85,7 @@ def quantize(
     if not os.path.isfile(q_model_path):
         if not nonq_model_path:
             raise ValueError(f"Could not find nonquantized model at {nonq_model_path}")
-        quantize_cmd = os.path.join(get_llama_cpp_dir(), "quantize")
-
-        if not os.path.isfile(quantize_cmd):
-            raise RuntimeError(
-                f"Could not find quantize executable at {quantize_cmd} "
-                f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))",
-            )
+        quantize_cmd = find_tool(get_llama_cpp_dir(), "quantize")
         concurrency = str(os.cpu_count() + 2)
         print_and_check_call([quantize_cmd, nonq_model_path, dest_type, concurrency])
     return q_model_path
@@ -90,7 +107,7 @@ def convert_pth(
     *,
     convert_type: str,
     vocab_type: str,
-    use_convert_hf_to_gguf=False,
+    converter: str,
 ):
     model_path = get_ggml_model_path(dirname, convert_type)
     try:
@@ -99,28 +116,37 @@ def convert_pth(
             print(f"Not believing a {stat.st_size:d}-byte model is valid, reconverting")
             raise FileNotFoundError()
     except FileNotFoundError:
-        if use_convert_hf_to_gguf:
-            convert_using_hf_to_gguf(dirname, convert_type=convert_type)
-        else:
-            convert_using_convert(
+        converters = {
+            "convert-hf-to-gguf": lambda: convert_using_hf_to_gguf(dirname, convert_type=convert_type),
+            "convert": lambda: convert_using_convert_py(
                 dirname,
                 convert_type=convert_type,
                 vocab_type=vocab_type,
-            )
+            ),
+        }
+        if converter == "auto":
+            for con, func in converters.items():
+                try:
+                    func()
+                    break
+                except ToolNotFoundError:
+                    pass
+            else:
+                raise ToolNotFoundError("Could not find a converter")
+        elif converter in converters:
+            converters[converter]()
+        else:
+            raise ValueError(f"Unknown converter {converter!r}")
+
     return model_path
 
 
-def convert_using_convert(dirname, *, convert_type, vocab_type):
-    convert_hf_to_gguf_py = os.path.join(get_llama_cpp_dir(), "convert.py")
-    if not os.path.isfile(convert_hf_to_gguf_py):
-        raise RuntimeError(
-            f"Could not find convert.py at {convert_hf_to_gguf_py} "
-            f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))",
-        )
+def convert_using_convert_py(dirname, *, convert_type, vocab_type):
+    convert_py = find_tool(get_llama_cpp_dir(), "convert.py")
     print_and_check_call(
         [
             PYTHON_EXE,
-            convert_hf_to_gguf_py,
+            convert_py,
             dirname,
             f"--outtype={convert_type}",
             f"--vocab-type={vocab_type}",
@@ -129,12 +155,14 @@ def convert_using_convert(dirname, *, convert_type, vocab_type):
 
 
 def convert_using_hf_to_gguf(dirname, *, convert_type):
-    convert_hf_to_gguf_py = os.path.join(get_llama_cpp_dir(), "convert-hf-to-gguf.py")
-    if not os.path.isfile(convert_hf_to_gguf_py):
-        raise RuntimeError(
-            f"Could not find convert.py at {convert_hf_to_gguf_py} "
-            f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))",
-        )
+    convert_hf_to_gguf_py = find_tool(
+        get_llama_cpp_dir(),
+        "convert-hf-to-gguf.py",
+        [
+            "convert-hf-to-gguf.py",
+            "convert_hf_to_gguf.py",
+        ],
+    )
     print_and_check_call(
         [
             PYTHON_EXE,
@@ -153,7 +181,7 @@ def convert_pth_to_types(
     remove_nonquantized_model=False,
     nonquantized_type: str,
     vocab_type: str,
-    use_convert_hf_to_gguf=False,
+    converter: str = "auto",
 ):
     # If f32 is requested, or a quantized type is requested, convert to fp32 GGML
     nonquantized_path = None
@@ -162,7 +190,7 @@ def convert_pth_to_types(
             dirname,
             convert_type=nonquantized_type,
             vocab_type=vocab_type,
-            use_convert_hf_to_gguf=use_convert_hf_to_gguf,
+            converter=converter,
         )
     # Other types
     for type in types:
@@ -251,9 +279,16 @@ def main():
     ap.add_argument(
         "--use-convert-hf-to-gguf",
         action="store_true",
-        help="Use convert_hf_to_gguf.py instead of convert.py",
+        help="Use convert_hf_to_gguf.py instead of convert.py (deprecated; use `--converter`)",
+    )
+    ap.add_argument(
+        "--converter",
+        default="auto",
+        choices=("auto", "convert", "convert-hf-to-gguf"),
     )
     args = ap.parse_args()
+    if args.use_convert_hf_to_gguf:
+        args.converter = "convert-hf-to-gguf"
     if args.llama_cpp_dir:
         os.environ["LLAMA_CPP_DIR"] = args.llama_cpp_dir
     repo = args.repo
@@ -267,7 +302,7 @@ def main():
             remove_nonquantized_model=not args.keep_nonquantized,
             nonquantized_type=args.nonquantized_type,
             vocab_type=args.vocab_type,
-            use_convert_hf_to_gguf=args.use_convert_hf_to_gguf,
+            converter=args.converter,
         ),
     )
     for output_path in output_paths:
