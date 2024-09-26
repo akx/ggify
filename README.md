@@ -6,7 +6,7 @@ A small tool that downloads models from [the Huggingface Hub](https://huggingfac
 
 - Download and compile `llama.cpp`.
 - Set up a virtualenv using the requirements from `llama.cpp`.
-- Install the requirements from this repo in that virtualenv.
+- Install this package in that virtualenv (e.g. `pip install -e .`).
 - Run e.g. `python ggify.py databricks/dolly-v2-12b` (nb.: I haven't tried with that particular repo)
 - You'll end up with GGML models under `models/...`.
 

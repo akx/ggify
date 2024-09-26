@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ggify"
+version = "0.1.0"
+description = "Download and convert models from Huggingface Hub to GGML"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "huggingface-hub~=0.23.0",
+    "tqdm~=4.66.5",
+]
+
+[project.scripts]
+ggify = "ggify:main"
+
