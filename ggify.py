@@ -67,7 +67,7 @@ def quantize(
         if not os.path.isfile(quantize_cmd):
             raise RuntimeError(
                 f"Could not find quantize executable at {quantize_cmd} "
-                f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
+                f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))",
             )
         concurrency = str(os.cpu_count() + 2)
         print_and_check_call([quantize_cmd, nonq_model_path, dest_type, concurrency])
@@ -103,7 +103,9 @@ def convert_pth(
             convert_using_hf_to_gguf(dirname, convert_type=convert_type)
         else:
             convert_using_convert(
-                dirname, convert_type=convert_type, vocab_type=vocab_type
+                dirname,
+                convert_type=convert_type,
+                vocab_type=vocab_type,
             )
     return model_path
 
@@ -113,7 +115,7 @@ def convert_using_convert(dirname, *, convert_type, vocab_type):
     if not os.path.isfile(convert_hf_to_gguf_py):
         raise RuntimeError(
             f"Could not find convert.py at {convert_hf_to_gguf_py} "
-            f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
+            f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))",
         )
     print_and_check_call(
         [
@@ -122,7 +124,7 @@ def convert_using_convert(dirname, *, convert_type, vocab_type):
             dirname,
             f"--outtype={convert_type}",
             f"--vocab-type={vocab_type}",
-        ]
+        ],
     )
 
 
@@ -131,7 +133,7 @@ def convert_using_hf_to_gguf(dirname, *, convert_type):
     if not os.path.isfile(convert_hf_to_gguf_py):
         raise RuntimeError(
             f"Could not find convert.py at {convert_hf_to_gguf_py} "
-            f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))"
+            f"(set LLAMA_CPP_DIR (currently {get_llama_cpp_dir()}?))",
         )
     print_and_check_call(
         [
@@ -140,7 +142,7 @@ def convert_using_hf_to_gguf(dirname, *, convert_type):
             dirname,
             f"--outtype={convert_type}",
             "--verbose",
-        ]
+        ],
     )
 
 
@@ -189,7 +191,7 @@ def download_repo(repo, dirname):
     files = list(huggingface_hub.list_repo_tree(repo, token=hf_token))
     if not any(fi.rfilename.startswith("pytorch_model") for fi in files):
         print(
-            f"Repo {repo} does not seem to contain a PyTorch model, but continuing anyway"
+            f"Repo {repo} does not seem to contain a PyTorch model, but continuing anyway",
         )
 
     with tqdm.tqdm(files, unit="file", desc="Downloading files...") as pbar:
@@ -266,7 +268,7 @@ def main():
             nonquantized_type=args.nonquantized_type,
             vocab_type=args.vocab_type,
             use_convert_hf_to_gguf=args.use_convert_hf_to_gguf,
-        )
+        ),
     )
     for output_path in output_paths:
         print(output_path)
