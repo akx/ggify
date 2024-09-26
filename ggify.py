@@ -188,7 +188,7 @@ def convert_pth_to_types(
 
 
 def download_repo(repo, dirname):
-    files = list(huggingface_hub.list_repo_tree(repo, token=hf_token))
+    files = [fi for fi in huggingface_hub.list_repo_tree(repo, token=hf_token) if isinstance(fi, RepoFile)]
     if not any(fi.rfilename.startswith("pytorch_model") for fi in files):
         print(
             f"Repo {repo} does not seem to contain a PyTorch model, but continuing anyway",
