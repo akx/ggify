@@ -16,3 +16,8 @@ dependencies = [
 [project.scripts]
 ggify = "ggify:main"
 
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["COM812", "E", "F", "W", "I"]
