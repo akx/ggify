@@ -292,7 +292,7 @@ def main():
     if args.llama_cpp_dir:
         os.environ["LLAMA_CPP_DIR"] = args.llama_cpp_dir
     repo = args.repo
-    dirname = os.path.join(".", "models", repo.replace("/", "__"))
+    dirname = os.path.join(get_llama_cpp_dir(), "models", repo.replace("/", "__"))
     download_repo(repo, dirname)
     types = set(re.split(r",\s*", args.types))
     output_paths = list(
