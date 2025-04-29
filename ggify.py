@@ -125,14 +125,16 @@ def convert_pth(
             ),
         }
         if converter == "auto":
+            tool_errors = []
             for con, func in converters.items():
                 try:
                     func()
                     break
-                except ToolNotFoundError:
-                    pass
+                except ToolNotFoundError as tnfe:
+                    tool_errors.append(tnfe)
             else:
-                raise ToolNotFoundError("Could not find a converter")
+                tool_error_texts = "\n".join(f"- {e}" for e in tool_errors)
+                raise ToolNotFoundError(f"Could not find any converter for {model_path}:\n{tool_error_texts}")
         elif converter in converters:
             converters[converter]()
         else:
