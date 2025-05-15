@@ -85,7 +85,7 @@ def quantize(
     if not os.path.isfile(q_model_path):
         if not nonq_model_path:
             raise ValueError(f"Could not find nonquantized model at {nonq_model_path}")
-        quantize_cmd = find_tool(get_llama_cpp_dir(), "quantize")
+        quantize_cmd = find_tool(get_llama_cpp_dir(), "build/bin/llama-quantize")
         concurrency = str(os.cpu_count() + 2)
         print_and_check_call([quantize_cmd, nonq_model_path, dest_type, concurrency])
     return q_model_path
@@ -170,6 +170,7 @@ def convert_using_hf_to_gguf(dirname, *, convert_type):
             PYTHON_EXE,
             convert_hf_to_gguf_py,
             dirname,
+            f"--outfile={get_ggml_model_path(dirname, convert_type)}",
             f"--outtype={convert_type}",
             "--verbose",
         ],
